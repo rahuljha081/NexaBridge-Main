@@ -18,6 +18,6 @@ app.get('/', (req, res) => {
 
 // 4. Server Start
 app.listen(PORT, () => {
-    console.log(`Server chalu ho gaya: http://localhost:${PORT}`);
+    console.log(`Server started: http://localhost:${PORT}`);
     // Database connection check pehle se hi db.js mein hai
 });
