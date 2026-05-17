@@ -10,43 +10,39 @@ function App() {
   const [page, setPage] = useState('home'); // home, login, signup, dashboard
   const [role, setRole] = useState('student');
 
-  // URL parameters aur Session Persistence check karne ke liye (Refresh & Direct URL barrier)
+  // URL parameters aur Session Persistence check karne ke liye (Strict Role Authentication)
   useEffect(() => {
     const handleLocationCheck = () => {
       const path = window.location.pathname;
       const queryParams = new URLSearchParams(window.location.search);
       const roleParam = queryParams.get('role');
 
-      // Session persistence logic: LocalStorage se token check karo
+      // Session persistence logic: Get authenticated status from LocalStorage
       const token = localStorage.getItem('token');
       const user = localStorage.getItem('user');
 
-      if (roleParam) {
-        setRole(roleParam);
-      } else if (user) {
+      if (token && user) {
+        // Strict Validation: If user is logged in, ALWAYS prioritize their registered account role
         const parsedUser = JSON.parse(user);
         setRole(parsedUser.role || 'student');
-      }
-
-      // Barrier Check: Agar logged in hai aur user '/', '/login' ya '/signup' pe bhatak raha hai, to dashboard bhejo
-      if (token && user) {
-        if (path === '/' || path === '/login' || path === '/signup' || path === '/dashboard') {
-          if (path !== '/dashboard') {
-            window.history.replaceState({}, '', '/dashboard');
-          }
-          setPage('dashboard');
-          return;
+        
+        // Router Barrier: Lock authenticated users inside the dashboard layout
+        if (path === '/' || path === '/login' || path === '/signup' || path !== '/dashboard') {
+          window.history.replaceState({}, '', '/dashboard');
         }
+        setPage('dashboard');
+        return;
       }
 
-      // Normal routing agar user logged in nahi hai
+      // Guest Navigation: If not logged in, fetch requested role parameters from the URL safely
+      if (roleParam) {
+        setRole(roleParam);
+      }
+
+      // Unauthenticated standard path validation routing
       if (path === '/dashboard') {
-        if (token && user) {
-          setPage('dashboard');
-        } else {
-          window.history.replaceState({}, '', '/');
-          setPage('home');
-        }
+        window.history.replaceState({}, '', '/');
+        setPage('home');
       } else if (path === '/login') {
         setPage('login');
       } else if (path === '/signup') {
@@ -61,19 +57,19 @@ function App() {
     return () => window.removeEventListener('popstate', handleLocationCheck);
   }, []);
 
-  // Custom Navigation function jo bina crash kiye URL badlegi aur redirection rokesi
+  // Custom Navigation function that handles authenticated state protection
   const navigate = (toPath) => {
     const token = localStorage.getItem('token');
     const user = localStorage.getItem('user');
 
-    // Barrier: Navbar se Home dabane par ya direct routing par agar logged in hai to dashboard pe lock rakho
-    if (token && user && (toPath === '/' || toPath.startsWith('/login') || toPath.startsWith('/signup'))) {
+    // Security check: Force logged-in profiles to stay within the protected dashboard component
+    if (token && user) {
       window.history.pushState({}, '', '/dashboard');
       setPage('dashboard');
       return;
     }
 
-    // Normal navigation logic
+    // Standard public path dynamic navigation routing
     window.history.pushState({}, '', toPath);
     const url = new URL(window.location.origin + toPath);
     const roleParam = url.searchParams.get('role');

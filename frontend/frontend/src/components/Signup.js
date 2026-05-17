@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 
 const Signup = ({ navigate, currentRole }) => {
     const [formData, setFormData] = useState({
@@ -10,6 +10,12 @@ const Signup = ({ navigate, currentRole }) => {
     const [loading, setLoading] = useState(false);
     const [errorMsg, setErrorMsg] = useState('');
 
+    useEffect(() => {
+        if (currentRole) {
+            setFormData(prev => ({ ...prev, role: currentRole }));
+        }
+    }, [currentRole]);
+
     const handleChange = (e) => {
         setFormData({ ...formData, [e.target.name]: e.target.value });
     };
@@ -20,21 +26,37 @@ const Signup = ({ navigate, currentRole }) => {
         setErrorMsg('');
 
         try {
-            // Client-side self authentication registration bypass
-            const dummyUserData = {
-                id: "dummy_id_" + Date.now(),
+            // Local storage simulation boundary for registered user pools
+            const registeredUsers = JSON.parse(localStorage.getItem('registered_users_pool')) || [];
+
+            // Duplicate validation check inside frontend pool
+            const userExists = registeredUsers.find(user => user.email.toLowerCase() === formData.email.toLowerCase());
+
+            if (userExists) {
+                setErrorMsg('Account configuration error: This email address is already registered.');
+                setLoading(false);
+                return;
+            }
+
+            // Create and push new account layout inside local data pool
+            const newUserData = {
+                id: "user_id_" + Date.now(),
                 username: formData.username,
                 email: formData.email,
                 role: formData.role
             };
 
+            registeredUsers.push(newUserData);
+            localStorage.setItem('registered_users_pool', JSON.stringify(registeredUsers));
+
+            // Set current active session profile
             localStorage.setItem('token', 'mock_jwt_token_' + Date.now());
-            localStorage.setItem('user', JSON.stringify(dummyUserData));
+            localStorage.setItem('user', JSON.stringify(newUserData));
             
             navigate('/dashboard');
         } catch (error) {
-            console.error('Signup error:', error);
-            setErrorMsg('Something went wrong!');
+            console.error('Registration configuration error:', error);
+            setErrorMsg('Registration failed. Connection timed out.');
         } finally {
             setLoading(false);
         }

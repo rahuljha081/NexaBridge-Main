@@ -19,25 +19,36 @@ const Login = ({ navigate, currentRole }) => {
         setErrorMsg('');
 
         try {
-            // Hardcoded safe bypass: Bina backend crash ke instant client-side login validation
-            const dummyUsername = formData.email.split('@')[0] || "User";
-            
-            const dummyUserData = {
-                id: "dummy_id_" + Date.now(),
-                username: dummyUsername,
-                email: formData.email,
-                role: formData.role
-            };
+            // LocalStorage data pool lookup to authenticate registered profiles
+            const registeredUsers = JSON.parse(localStorage.getItem('registered_users_pool')) || [];
 
-            // LocalStorage saving logic without pop-up interruptions
+            // Find the account matching the exact email entered by the user
+            const targetUser = registeredUsers.find(
+                user => user.email.toLowerCase() === formData.email.toLowerCase()
+            );
+
+            // Validation 1: Check if the user pool contains this email address
+            if (!targetUser) {
+                setErrorMsg('Authentication error: Invalid email address or account does not exist.');
+                setLoading(false);
+                return;
+            }
+
+            // Validation 2: Role Verification Check - Match database record role with the current chosen portal role
+            if (targetUser.role !== formData.role) {
+                setErrorMsg(`Access denied: This account is registered as a "${targetUser.role}" and cannot access the "${formData.role}" portal.`);
+                setLoading(false);
+                return;
+            }
+
+            // Authentication successful: Set secure session storage profiles
             localStorage.setItem('token', 'mock_jwt_token_' + Date.now());
-            localStorage.setItem('user', JSON.stringify(dummyUserData));
+            localStorage.setItem('user', JSON.stringify(targetUser));
             
-            // Direct makkhan redirect
             navigate('/dashboard');
         } catch (error) {
-            console.error('Login error:', error);
-            setErrorMsg('Something went wrong!');
+            console.error('Login authentication error:', error);
+            setErrorMsg('Authentication failed. Server connection timeout.');
         } finally {
             setLoading(false);
         }
@@ -49,7 +60,7 @@ const Login = ({ navigate, currentRole }) => {
             <p className="text-gray-400 text-center text-sm mb-6 capitalize">Portal: {formData.role}</p>
             
             {errorMsg && (
-                <div className="bg-red-500/10 border border-red-500/20 text-red-400 text-sm p-3 rounded-xl mb-4 font-medium text-center">
+                <div className="bg-red-500/10 border border-red-500/20 text-red-400 text-sm p-3 rounded-xl mb-4 font-medium text-center leading-relaxed">
                     {errorMsg}
                 </div>
             )}
