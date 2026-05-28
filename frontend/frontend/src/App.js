@@ -83,13 +83,15 @@ function App() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-900 text-white font-sans">
+    /* FIXED: Restored your exact structural centering block but swapped slate-900 canvas for clean off-white (#f4f5f7) styling */
+    <div className="w-full min-h-screen bg-[#f4f5f7] text-slate-800 font-sans overflow-y-auto selection:bg-blue-100">
       <Navbar navigate={navigate} />
       
-      <div className="flex flex-col items-center justify-center">
+      {/* Maintains your exact same rendering layout loop with custom top alignment padding */}
+      <div className="flex flex-col items-center justify-center pt-24 pb-12">
         {page === 'home' && <Home navigate={navigate} />}
-        {page === 'login' && <div className="mt-20"><Login navigate={navigate} currentRole={role} /></div>}
-        {page === 'signup' && <div className="mt-20"><Signup navigate={navigate} currentRole={role} /></div>}
+        {page === 'login' && <div className="mt-12"><Login navigate={navigate} currentRole={role} /></div>}
+        {page === 'signup' && <div className="mt-12"><Signup navigate={navigate} currentRole={role} /></div>}
         {page === 'dashboard' && <Dashboard navigate={navigate} />}
       </div>
     </div>

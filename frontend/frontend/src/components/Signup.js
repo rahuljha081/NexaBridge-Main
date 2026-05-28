@@ -1,19 +1,13 @@
 import React, { useState, useEffect } from 'react';
 
 const Signup = ({ navigate, currentRole }) => {
-    const [formData, setFormData] = useState({
-        username: '',
-        email: '',
-        password: '',
-        role: currentRole || 'student'
-    });
+    const [formData, setFormData] = useState({ username: '', email: '', password: '', role: currentRole || 'student' });
     const [loading, setLoading] = useState(false);
     const [errorMsg, setErrorMsg] = useState('');
+    const [showRegisterModal, setShowRegisterModal] = useState(false); 
 
     useEffect(() => {
-        if (currentRole) {
-            setFormData(prev => ({ ...prev, role: currentRole }));
-        }
+        if (currentRole) setFormData(prev => ({ ...prev, role: currentRole }));
     }, [currentRole]);
 
     const queryParams = new URLSearchParams(window.location.search);
@@ -23,121 +17,121 @@ const Signup = ({ navigate, currentRole }) => {
         setFormData({ ...formData, [e.target.name]: e.target.value });
     };
 
-    const handleSubmit = async (e) => {
+    const handleFormSubmitTrigger = (e) => {
         e.preventDefault();
-        setLoading(true);
         setErrorMsg('');
+        setShowRegisterModal(true);
+    };
+
+    const confirmRegistrationAction = async () => {
+        setShowRegisterModal(false);
+        setLoading(true);
 
         try {
             const response = await fetch('http://localhost:5000/api/register', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    name: formData.username,
-                    email: formData.email.toLowerCase().trim(),
-                    password: formData.password,
-                    role: roleParam
-                })
+                body: JSON.stringify({ name: formData.username, email: formData.email.toLowerCase().trim(), password: formData.password, role: roleParam })
             });
-
             const data = await response.json();
-
             if (data.success) {
-                alert("Account Configuration Secured: User data successfully logged into MySQL Database!");
-                
-                const mockUserSession = {
-                    name: formData.username,
-                    email: formData.email.toLowerCase().trim(),
-                    role: roleParam
-                };
-                localStorage.setItem('token', 'mock-jwt-token-node');
-                localStorage.setItem('user', JSON.stringify(mockUserSession));
-                
-                navigate('/dashboard');
+                navigate(`/login?role=${roleParam}`);
             } else {
-                setErrorMsg(data.error || 'Account configuration error: This email address is already registered.');
+                setErrorMsg(data.error || 'This email address is already registered.');
             }
         } catch (error) {
-            console.error('Registration configuration error:', error);
-            setErrorMsg('Registration failed. Connection timed out with backend server.');
+            setErrorMsg('Registration failed. Connection timed out.');
         } finally {
             setLoading(false);
         }
     };
 
     return (
-        <div className="w-full min-h-screen bg-slate-950 text-white flex flex-col m-0 p-0 overflow-x-hidden box-border">
+        /* FIXED: Minimal container matching the exact same floating dimensions as Login */
+        <div className="w-full max-w-[420px] bg-white rounded-md p-10 text-center shadow-[0_4px_24px_rgba(0,0,0,0.04)] font-sans border border-slate-200/50">
             
-            {/* Top Navigation Bar */}
-            <div className="w-full fixed top-0 left-0 z-50 bg-slate-950/60 backdrop-blur-md border-b border-gray-900/40 px-12 py-5 flex items-center justify-between box-border">
-                <h1 className="text-2xl font-black text-indigo-500 cursor-pointer" onClick={() => navigate('/')}>NexaBridge.</h1>
-                <div className="flex items-center gap-8 text-sm font-semibold text-gray-400">
-                    <span className="hover:text-white cursor-pointer transition" onClick={() => navigate('/')}>Home</span>
-                    <span className="hover:text-white cursor-pointer transition">Features</span>
-                    <button onClick={() => navigate(`/login?role=${roleParam}`)} className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl font-bold transition shadow-lg shadow-blue-600/20">Get Started</button>
-                </div>
-            </div>
-
-            {/* Centered Form Wrapper Panel (Right Side Panel Completely Removed) */}
-            <div className="w-full flex-1 flex min-h-screen items-center justify-center pt-20 p-6 box-border">
-                <div className="w-full max-w-md bg-slate-900/40 border border-gray-900 p-10 rounded-3xl backdrop-blur-sm text-left shadow-2xl relative">
-                    <div className="absolute top-[-10%] left-[-10%] w-[300px] h-[300px] bg-indigo-500/5 rounded-full blur-[80px] pointer-events-none" />
-                    
-                    <div className="text-center mb-8 relative z-10">
-                        <h2 className="text-3xl font-black text-white tracking-tight">Create Account</h2>
-                        <p className="text-[10px] text-gray-400 mt-2 font-bold uppercase tracking-widest">Joining As Workspace: <span className="text-indigo-400">{roleParam}</span></p>
-                    </div>
-
-                    {errorMsg && (
-                        <div className="bg-red-500/10 border border-red-500/20 text-red-400 px-4 py-3 rounded-xl text-xs font-bold mb-5 text-center relative z-10">
-                            {errorMsg}
+            {/* CUSTOM MINIMAL REGISTER CONFIRMATION MODAL */}
+            {showRegisterModal && (
+                <div className="fixed inset-0 bg-slate-950/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                    <div className="bg-white border border-slate-200 p-8 rounded-lg w-full max-w-sm text-center shadow-xl">
+                        <div className="text-3xl mb-3">🚀</div>
+                        <h3 className="text-xl font-bold text-slate-900 tracking-tight">Confirm Registration</h3>
+                        <p className="text-sm text-slate-500 mt-2 leading-relaxed">Are you sure you want to deploy this active node configuration and register into the database network?</p>
+                        <div className="flex gap-3 mt-6">
+                            <button onClick={() => setShowRegisterModal(false)} className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 py-2.5 rounded-md font-medium text-sm transition">Cancel</button>
+                            <button onClick={confirmRegistrationAction} className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2.5 rounded-md font-medium text-sm transition shadow-sm">Confirm</button>
                         </div>
-                    )}
-
-                    <form onSubmit={handleSubmit} className="space-y-4 relative z-10">
-                        <div>
-                            <label className="block text-[10px] font-bold text-gray-400 uppercase mb-2 tracking-wider">Full Name</label>
-                            <input 
-                                type="text" name="username" placeholder="Rahul Jha" required 
-                                value={formData.username} onChange={handleChange}
-                                className="w-full bg-slate-950 border border-gray-800 focus:border-indigo-500 rounded-xl px-4 py-3.5 text-xs text-white outline-none transition"
-                            />
-                        </div>
-                        <div>
-                            <label className="block text-[10px] font-bold text-gray-400 uppercase mb-2 tracking-wider">Email Address</label>
-                            <input 
-                                type="email" name="email" placeholder="rahul@gmail.com" required 
-                                value={formData.email} onChange={handleChange}
-                                className="w-full bg-slate-950 border border-gray-800 focus:border-indigo-500 rounded-xl px-4 py-3.5 text-xs text-white outline-none transition"
-                            />
-                        </div>
-                        <div>
-                            <label className="block text-[10px] font-bold text-gray-400 uppercase mb-2 tracking-wider">Secret Security Password</label>
-                            <input 
-                                type="password" name="password" placeholder="••••••••" required 
-                                value={formData.password} onChange={handleChange}
-                                className="w-full bg-slate-950 border border-gray-800 focus:border-indigo-500 rounded-xl px-4 py-3.5 text-xs text-white outline-none transition"
-                            />
-                        </div>
-                        <button 
-                            type="submit" disabled={loading}
-                            className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3.5 rounded-xl font-black text-xs transition shadow-lg uppercase tracking-wider mt-4 disabled:opacity-50"
-                        >
-                            {loading ? 'Creating...' : 'Register Account Node'}
-                        </button>
-                    </form>
-
-                    <div className="mt-6 text-center relative z-10">
-                        <p className="text-xs text-gray-400">
-                            Already have an account?{' '}
-                            <span onClick={() => navigate(`/login?role=${roleParam}`)} className="text-indigo-400 hover:text-indigo-300 font-bold cursor-pointer transition underline ml-1">
-                                Login Here
-                            </span>
-                        </p>
                     </div>
                 </div>
+            )}
+
+            {/* Logo Header */}
+            <div className="mb-8 flex flex-col items-center">
+                <span className="text-2xl font-black tracking-tight text-slate-900">
+                    Nexa<span className="text-blue-600">Bridge.</span>
+                </span>
+                <span className="text-[10px] uppercase tracking-widest font-black text-slate-400 mt-1">
+                    CREATE ACCOUNT • {roleParam}
+                </span>
             </div>
 
+            {errorMsg && (
+                <div className="bg-red-50 border border-red-200 text-red-600 px-4 py-2.5 rounded-md text-xs font-bold mb-4 text-center">
+                    {errorMsg}
+                </div>
+            )}
+
+            {/* Form Fields: Grid row setups stripped into sleek LeetCode inputs sequence */}
+            <form onSubmit={handleFormSubmitTrigger} className="space-y-4 text-left">
+                <input 
+                    type="text" 
+                    name="username"
+                    required 
+                    placeholder="Full Name" 
+                    value={formData.username}
+                    onChange={handleChange}
+                    className="w-full bg-[#f7f8fa] border border-[#e5e7eb] focus:border-blue-500 focus:bg-white rounded-md px-4 py-3 text-sm text-slate-800 outline-none transition placeholder-slate-400" 
+                />
+
+                <input 
+                    type="email" 
+                    name="email"
+                    required 
+                    placeholder="Email Address" 
+                    value={formData.email}
+                    onChange={handleChange}
+                    className="w-full bg-[#f7f8fa] border border-[#e5e7eb] focus:border-blue-500 focus:bg-white rounded-md px-4 py-3 text-sm text-slate-800 outline-none transition placeholder-slate-400" 
+                />
+
+                <input 
+                    type="password" 
+                    name="password"
+                    required 
+                    placeholder="Password" 
+                    value={formData.password}
+                    onChange={handleChange}
+                    className="w-full bg-[#f7f8fa] border border-[#e5e7eb] focus:border-blue-500 focus:bg-white rounded-md px-4 py-3 text-sm text-slate-800 outline-none transition placeholder-slate-400" 
+                />
+
+                <button 
+                    type="submit" 
+                    disabled={loading} 
+                    className="w-full bg-[#4a5e6d] hover:bg-[#3d4f5c] text-white font-medium py-3 rounded-md text-sm transition shadow-sm tracking-wide mt-2 disabled:opacity-60"
+                >
+                    {loading ? 'Processing Node...' : 'Sign Up'}
+                </button>
+            </form>
+
+            {/* Footer Bottom Redirect */}
+            <div className="mt-6 flex justify-center text-xs text-slate-400">
+                Already have an account?{' '}
+                <span 
+                    onClick={() => navigate(`/login?role=${roleParam}`)} 
+                    className="text-slate-800 font-bold hover:text-blue-600 cursor-pointer transition ml-1"
+                >
+                    Sign In
+                </span>
+            </div>
         </div>
     );
 };

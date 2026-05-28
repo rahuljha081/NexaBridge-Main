@@ -7,11 +7,11 @@ const app = express();
 app.use(cors());
 app.use(bodyParser.json());
 
-// 1. MySQL Database Connection Setup
+// MySQL Database Connection Setup
 const db = mysql.createConnection({
     host: 'localhost',
     user: 'root',
-    password: 'rahuljhads556@###', // <-- Tera perfectly verified password
+    password: 'rahuljhads556@###', 
     database: 'nexabridge_db'
 });
 
@@ -37,11 +37,8 @@ app.post('/api/register', (req, res) => {
     });
 });
 
-// LOGIN ENDPOINT (STRICT ROLE LOCK APPLIED)
 app.post('/api/login', (req, res) => {
     const { email, password, role } = req.body;
-    
-    // Strict authentication check tracking: email AND password AND role matching parameters
     const sql = "SELECT id, username as name, email, role FROM users WHERE email = ? AND password = ? AND role = ?";
     
     db.query(sql, [email.trim(), password, role], (err, results) => {
@@ -50,18 +47,61 @@ app.post('/api/login', (req, res) => {
         if (results.length > 0) {
             res.json({ success: true, user: results[0], token: "mock-jwt-token-node" });
         } else {
-            // Agar role mismatch hua ya password galat, toh seedha entry cross block
             res.status(401).json({ success: false, error: "Invalid Email, Password, or Role Mismatch" });
         }
     });
 });
 
+// PERFECT DYNAMIC SIDEBAR FILTERS: Strips uncommunicated rows from BOTH Student and Alumni sidebars
 app.get('/api/mentors', (req, res) => {
-    const sql = "SELECT username as name, email, role FROM users WHERE role = 'alumni'";
-    db.query(sql, (err, results) => {
-        if (err) return res.status(500).json({ error: err.message });
-        res.json(results);
-    });
+    const { fetchStudents, email } = req.query;
+    
+    if (email) {
+        const currentEmail = email.toLowerCase().trim();
+        
+        if (fetchStudents === 'true') {
+            // ALUMNI VIEW: Load only students who have a record in the chats table with this alumni
+            const sql = `
+                SELECT DISTINCT u.username as name, u.email, u.role 
+                FROM users u
+                WHERE u.role = 'student'
+                AND u.email IN (
+                    SELECT sender_email FROM chats WHERE chat_key LIKE CONCAT('%', ?, '%')
+                )
+            `;
+            db.query(sql, [currentEmail], (err, results) => {
+                if (err) return res.status(500).json({ error: err.message });
+                res.json(results);
+            });
+        } else {
+            // STUDENT VIEW (Inside My Chats tab): Load only alumni who have shared chats with this student
+            const sql = `
+                SELECT DISTINCT u.username as name, u.email, u.role 
+                FROM users u
+                WHERE u.role = 'alumni'
+                AND u.email IN (
+                    SELECT DISTINCT 
+                        CASE 
+                            WHEN LOWER(sender_email) = ? THEN REPLACE(REPLACE(chat_key, ?, ''), '_', '')
+                            ELSE sender_email 
+                        END
+                    FROM chats 
+                    WHERE chat_key LIKE CONCAT('%', ?, '%')
+                )
+            `;
+            db.query(sql, [currentEmail, currentEmail, currentEmail], (err, results) => {
+                if (err) return res.status(500).json({ error: err.message });
+                res.json(results);
+            });
+        }
+    } else {
+        // GENERAL FALLBACK/FIND MENTORS VIEW: Student browsing panel to fetch all verified alumni to trigger new conversation threads
+        const sql = "SELECT username as name, email, role FROM users WHERE role = 'alumni'";
+        db.query(sql, (err, results) => {
+            if (err) return res.status(500).json({ error: err.message });
+            res.json(results);
+        });
+    }
 });
 
 

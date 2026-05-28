@@ -15,16 +15,10 @@ const Login = ({ navigate }) => {
         fetch('http://localhost:5000/api/login', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-                email: email.trim(), 
-                password: password,
-                role: roleParam 
-            })
+            body: JSON.stringify({ email: email.trim(), password: password, role: roleParam })
         })
         .then(res => {
-            if (!res.ok) {
-                throw new Error("Invalid Credentials or Role Mismatch");
-            }
+            if (!res.ok) throw new Error("Invalid Credentials");
             return res.json();
         })
         .then(data => {
@@ -33,69 +27,74 @@ const Login = ({ navigate }) => {
                 localStorage.setItem('user', JSON.stringify(data.user));
                 navigate('/dashboard');
             } else {
-                setErrorMsg("Invalid Email, Password, or Role Mismatch");
+                setErrorMsg("Invalid Email or Password");
             }
         })
         .catch(err => {
             console.error(err);
-            setErrorMsg(`❌ Access Denied: Yeh account ${roleParam} workspace ke liye registered nahi hai!`);
+            setErrorMsg("❌ Galat Email ya Password! Please sahi details daalein.");
         });
     };
 
     return (
-        <div className="w-full min-h-screen bg-slate-950 text-white flex flex-col m-0 p-0 overflow-x-hidden box-border">
+        /* FIXED: Pure clean floating card structure just like the one before */
+        <div className="w-full max-w-[420px] bg-white rounded-md p-10 text-center shadow-[0_4px_24px_rgba(0,0,0,0.04)] font-sans border border-slate-200/50">
             
-            {/* Top Navigation Bar */}
-            <div className="w-full fixed top-0 left-0 z-50 bg-slate-950/60 backdrop-blur-md border-b border-gray-900/40 px-12 py-5 flex items-center justify-between box-border">
-                <h1 className="text-2xl font-black text-indigo-500 cursor-pointer" onClick={() => navigate('/')}>NexaBridge.</h1>
-                <div className="flex items-center gap-8 text-sm font-semibold text-gray-400">
-                    <span className="hover:text-white cursor-pointer transition" onClick={() => navigate('/')}>Home</span>
-                    <span className="hover:text-white cursor-pointer transition">Features</span>
-                    <button onClick={() => navigate(`/login?role=${roleParam}`)} className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl font-bold transition shadow-lg shadow-blue-600/20">Get Started</button>
-                </div>
+            {/* Logo and Workspace Label */}
+            <div className="mb-8 flex flex-col items-center">
+                <span className="text-2xl font-black tracking-tight text-slate-900">
+                    Nexa<span className="text-blue-600">Bridge.</span>
+                </span>
+                <span className="text-[10px] uppercase tracking-widest font-black text-slate-400 mt-1">
+                    WORKSPACE: {roleParam}
+                </span>
             </div>
 
-            {/* Centered Form Wrapper Panel (Right Side Panel Completely Removed) */}
-            <div className="w-full flex-1 flex min-h-screen items-center justify-center pt-20 p-6 box-border">
-                <div className="w-full max-w-md bg-slate-900/40 border border-gray-900 p-10 rounded-3xl backdrop-blur-sm text-left shadow-2xl relative">
-                    <div className="absolute top-[-10%] left-[-10%] w-[300px] h-[300px] bg-indigo-500/5 rounded-full blur-[80px] pointer-events-none" />
-                    
-                    <div className="text-center mb-8 relative z-10">
-                        <h2 className="text-3xl font-black text-white tracking-tight">NexaBridge.</h2>
-                        <p className="text-[10px] text-gray-400 mt-2 font-bold uppercase tracking-widest">Secure Gateway • Workspace: <span className="text-indigo-400">{roleParam}</span></p>
-                    </div>
-
-                    {errorMsg && (
-                        <div className="bg-red-500/10 border border-red-500/20 text-red-400 px-4 py-3 rounded-xl text-xs font-bold mb-5 text-center relative z-10">
-                            {errorMsg}
-                        </div>
-                    )}
-
-                    <form onSubmit={handleLoginSubmit} className="space-y-5 relative z-10">
-                        <div>
-                            <label className="block text-[10px] font-bold text-gray-400 uppercase mb-2 tracking-wider">Email Workspace Address</label>
-                            <input type="email" required placeholder="name@example.com" value={email} onChange={(e) => setEmail(e.target.value)} className="w-full bg-slate-950 border border-gray-800 focus:border-indigo-500 rounded-xl px-4 py-3.5 text-xs outline-none text-white transition" />
-                        </div>
-                        <div>
-                            <label className="block text-[10px] font-bold text-gray-400 uppercase mb-2 tracking-wider">Secret Identity Password</label>
-                            <input type="password" required placeholder="••••••••" value={password} onChange={(e) => setPassword(e.target.value)} className="w-full bg-slate-950 border border-gray-800 focus:border-indigo-500 rounded-xl px-4 py-3.5 text-xs outline-none text-white transition" />
-                        </div>
-                        <button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3.5 rounded-xl font-black text-xs transition shadow-lg uppercase tracking-wider mt-2">
-                            Verify & Establish Session
-                        </button>
-                    </form>
-
-                    <div className="mt-6 text-center relative z-10">
-                        <p className="text-xs text-gray-400">
-                            Don't have an account?{' '}
-                            <span onClick={() => navigate(`/signup?role=${roleParam}`)} className="text-indigo-400 hover:text-indigo-300 font-bold cursor-pointer transition underline ml-1">
-                                Register Here
-                            </span>
-                        </p>
-                    </div>
+            {errorMsg && (
+                <div className="bg-red-50 border border-red-200 text-red-600 px-4 py-2.5 rounded-md text-xs font-bold mb-4 text-center">
+                    {errorMsg}
                 </div>
-            </div>
+            )}
 
+            <form onSubmit={handleLoginSubmit} className="space-y-4">
+                <input 
+                    type="email" 
+                    required 
+                    placeholder="Email Address" 
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    className="w-full bg-[#f7f8fa] border border-[#e5e7eb] focus:border-blue-500 focus:bg-white rounded-md px-4 py-3 text-sm text-slate-800 outline-none transition placeholder-slate-400" 
+                />
+
+                <input 
+                    type="password" 
+                    required 
+                    placeholder="Password" 
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="w-full bg-[#f7f8fa] border border-[#e5e7eb] focus:border-blue-500 focus:bg-white rounded-md px-4 py-3 text-sm text-slate-800 outline-none transition placeholder-slate-400" 
+                />
+
+                <button 
+                    type="submit" 
+                    className="w-full bg-[#4a5e6d] hover:bg-[#3d4f5c] text-white font-medium py-3 rounded-md text-sm transition shadow-sm tracking-wide mt-2"
+                >
+                    Sign In
+                </button>
+            </form>
+
+            {/* LeetCode Bottom Links Row */}
+            <div className="mt-6 flex justify-between items-center text-xs text-slate-400 px-1">
+                <span className="hover:text-slate-800 cursor-pointer transition font-medium">
+                    Forgot Password?
+                </span>
+                <span 
+                    onClick={() => navigate(`/signup?role=${roleParam}`)} 
+                    className="text-slate-800 font-bold hover:text-blue-600 cursor-pointer transition"
+                >
+                    Sign Up
+                </span>
+            </div>
         </div>
     );
 };
