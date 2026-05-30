@@ -10,9 +10,9 @@ const Dashboard = ({ navigate }) => {
     const [globalChats, setGlobalChats] = useState([]); 
     const [referralRequests, setReferralRequests] = useState([]);
     
-    const [adminStats, setAdminStats] = useState({ totalStudents: 0, totalAlumni: 0, totalJobs: 0, totalRequests: 0 });
+    // Admin state telemetry metrics tracker
+    const [adminStats, setAdminStats] = useState({ totalStudents: 0, totalAlumni: 0, globalVolume: 0 });
     const [showLogoutModal, setShowLogoutModal] = useState(false);
-    const [showFeaturesModal, setShowFeaturesModal] = useState(false); 
     
     const [showApplicationModal, setShowApplicationModal] = useState(false);
     const [showAppConfirmModal, setShowAppConfirmModal] = useState(false); 
@@ -42,10 +42,10 @@ const Dashboard = ({ navigate }) => {
         company: '', 
         location: '', 
         experience: '', 
-        eligibilityCriteria: '' 
+        eligibilityCriteria: '',
+        deadline: '' 
     });
 
-    // ADMIN ONLY CHANNELS: Separated states for explicit admin controls data matrix
     const [adminStudentsList, setAdminStudentsList] = useState([]);
     const [adminAlumniList, setAdminAlumniList] = useState([]);
 
@@ -53,24 +53,17 @@ const Dashboard = ({ navigate }) => {
         return [email1.toLowerCase().trim(), email2.toLowerCase().trim()].sort().join('_');
     };
 
-    // Auto Scroll Mechanism
     useEffect(() => {
         if (chatContainerRef.current) {
             chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
         }
     }, [globalChats, selectedMentorEmail]);
 
-    // Core Data Fetch Sync Wire
-    useEffect(() => {
-        if (!user || !user.email) return;
-
-        fetch('http://localhost:5000/api/jobs')
-            .then(res => res.json())
-            .then(data => { if (Array.isArray(data)) setJobsList(data); })
-            .catch(err => console.error("Jobs load failure:", err));
+    // Isolated sidebar dynamic routing context reload
+    const loadSidebarThreads = () => {
+        if (!user || !user.email || user.role === 'admin') return;
 
         let endpointUrl = 'http://localhost:5000/api/mentors';
-        
         if (activeTab === 'chats') {
             endpointUrl = user.role === 'student'
                 ? `http://localhost:5000/api/mentors?email=${user.email.toLowerCase().trim()}`
@@ -88,45 +81,78 @@ const Dashboard = ({ navigate }) => {
                 }
             })
             .catch(err => console.error("Sidebar load failure:", err));
+    };
 
-        fetch(`http://localhost:5000/api/referrals?email=${user.email.toLowerCase()}&role=${user.role}`)
+    useEffect(() => {
+        if (!user || !user.email) return;
+
+        fetch('http://localhost:5000/api/jobs')
             .then(res => res.json())
-            .then(data => { if (Array.isArray(data)) setReferralRequests(data); })
-            .catch(err => console.error("Referrals fetch failure:", err));
+            .then(data => { if (Array.isArray(data)) setJobsList(data); })
+            .catch(err => console.error("Jobs load failure:", err));
 
-        // ADMIN DISPATCH ENGINE: Fetch comprehensive counts and full logs if logged role is admin
+        // FIXED: Explicit structural endpoints sync check strictly optimized for Admin nodes
         if (user.role === 'admin') {
-            // Fetch students loop sync
-            fetch('http://localhost:5000/api/mentors?fetchStudents=true')
+            // 1. Fetch telemetry stats
+            fetch('http://localhost:5000/api/admin/stats')
                 .then(res => res.json())
-                .then(studentsData => {
-                    if (Array.isArray(studentsData)) setAdminStudentsList(studentsData);
-                }).catch(err => console.log(err));
+                .then(stats => {
+                    if (stats) {
+                        setAdminStats({
+                            totalStudents: stats.students || 0,
+                            totalAlumni: stats.alumni || 0,
+                            globalVolume: stats.jobs || 0
+                        });
+                    }
+                }).catch(err => console.error(err));
 
-            // Fetch alumni network logs sync
-            fetch('http://localhost:5000/api/mentors')
+            // 2. Fetch full students database matrix mapping explicitly specifying unread-bypass context strings
+            fetch('http://localhost:5000/api/mentors?fetchStudents=true&email=null')
                 .then(res => res.json())
-                .then(alumniData => {
-                    if (Array.isArray(alumniData)) setAdminAlumniList(alumniData);
-                }).catch(err => console.log(err));
+                .then(studentsData => { if (Array.isArray(studentsData)) setAdminStudentsList(studentsData); })
+                .catch(err => console.error(err));
+
+            // 3. Fetch full alumni database matrix mapping explicitly specifying unread-bypass context strings
+            fetch('http://localhost:5000/api/mentors?fetchStudents=false&email=null')
+                .then(res => res.json())
+                .then(alumniData => { if (Array.isArray(alumniData)) setAdminAlumniList(alumniData); })
+                .catch(err => console.error(err));
+        } else {
+            loadSidebarThreads();
+
+            fetch(`http://localhost:5000/api/referrals?email=${user.email.toLowerCase()}&role=${user.role}`)
+                .then(res => res.json())
+                .then(data => { if (Array.isArray(data)) setReferralRequests(data); })
+                .catch(err => console.error("Referrals fetch failure:", err));
         }
     }, [activeTab, selectedMentorEmail]);
 
-    // Live Polling Cycle
     useEffect(() => {
-        if (!user || !selectedMentorEmail) return;
+        if (!user || !selectedMentorEmail || user.role === 'admin') return;
 
         const syncChatMessages = () => {
             const chatKey = getDeterministicChatKey(user.email, selectedMentorEmail);
+            
             fetch(`http://localhost:5000/api/messages/${chatKey}`)
                 .then(res => res.json())
                 .then(data => { if (Array.isArray(data)) setGlobalChats(data); })
-                .catch(err => console.error("Message Sync Loop error:", err));
+                .catch(err => console.error("Message Sync Error:", err));
+
+            fetch('http://localhost:5000/api/messages/mark-read', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ chat_key: chatKey, opponent_email: selectedMentorEmail })
+            }).catch(err => console.error(err));
         };
 
         syncChatMessages();
         const chatInterval = setInterval(syncChatMessages, 3000); 
-        return () => clearInterval(chatInterval);
+        const sidebarInterval = setInterval(loadSidebarThreads, 4000);
+
+        return () => {
+            clearInterval(chatInterval);
+            clearInterval(sidebarInterval);
+        };
     }, [selectedMentorEmail, user]);
 
     if (!token || !user) {
@@ -157,7 +183,6 @@ const Dashboard = ({ navigate }) => {
 
     const handleFormSubmitTrigger = (e) => {
         e.preventDefault();
-        
         const compositeDescription = referralForm.eligibilityCriteria.trim() || 'No description specified';
         const fallbackPostedBy = user && user.name && user.name.trim() !== "" ? user.name : user.email;
         
@@ -170,19 +195,15 @@ const Dashboard = ({ navigate }) => {
                 location: referralForm.location, 
                 description: compositeDescription,
                 experience: referralForm.experience,
-                posted_by: fallbackPostedBy
+                posted_by: fallbackPostedBy,
+                deadline: referralForm.deadline || null
             })
         })
         .then(res => res.json())
         .then(data => {
             if (data.success) {
-                setReferralForm({ title: '', company: '', location: '', experience: '', eligibilityCriteria: '' });
+                setReferralForm({ title: '', company: '', location: '', experience: '', eligibilityCriteria: '', deadline: '' });
                 alert("Success: Job Opportunity Broadcasted Successfully!");
-                
-                fetch('http://localhost:5000/api/jobs')
-                    .then(res => res.json())
-                    .then(refreshList => { if (Array.isArray(refreshList)) setJobsList(refreshList); });
-
                 setActiveTab('overview');
             }
         });
@@ -301,7 +322,7 @@ const Dashboard = ({ navigate }) => {
     return (
         <div className="w-full min-h-screen bg-[#f4f5f7] text-slate-800 pt-28 pb-12 text-left font-sans relative selection:bg-indigo-100">
             
-            {/* APPLICATION MODAL POPUP FORM */}
+            {/* APPLICATION MODAL */}
             {showApplicationModal && selectedJobForModal && (
                 <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-40 flex items-center justify-center p-4 overflow-y-auto">
                     <div className="bg-white border border-slate-100 p-8 rounded-3xl w-full max-w-lg shadow-2xl my-8">
@@ -313,7 +334,6 @@ const Dashboard = ({ navigate }) => {
                             </div>
                             <button onClick={() => setShowApplicationModal(false)} className="text-slate-400 hover:text-slate-600 font-bold text-sm">✕</button>
                         </div>
-
                         <form onSubmit={handleTriggerAppConfirm} className="space-y-4">
                             <div className="grid grid-cols-2 gap-4">
                                 <div>
@@ -327,8 +347,8 @@ const Dashboard = ({ navigate }) => {
                             </div>
                             <div>
                                 <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1.5 tracking-wider">Core Technical Skills Matrix</label>
-                                <input type="text" name="skills" required placeholder="e.g., Java, React, Node.js, DSA, SQL" value={applicationForm.skills} onChange={handleAppFormChange} className="w-full bg-slate-50 border border-slate-200 focus:border-blue-500 focus:bg-white rounded-xl px-4 py-2.5 text-xs text-slate-800 outline-none transition" />
-                                </div>
+                                <input type="text" name="skills" required placeholder="e.g., Java, React, Node.js, DSA" value={applicationForm.skills} onChange={handleAppFormChange} className="w-full bg-slate-50 border border-slate-200 focus:border-blue-500 focus:bg-white rounded-xl px-4 py-2.5 text-xs text-slate-800 outline-none transition" />
+                            </div>
                             <div>
                                 <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1.5 tracking-wider">Resume Drive Link</label>
                                 <input type="text" name="resumeUrl" required placeholder="www.drive.google.com/your-resume" value={applicationForm.resumeUrl} onChange={handleAppFormChange} className="w-full bg-slate-50 border border-slate-200 focus:border-blue-500 focus:bg-white rounded-xl px-4 py-2.5 text-xs text-slate-800 outline-none transition" />
@@ -342,7 +362,7 @@ const Dashboard = ({ navigate }) => {
                 </div>
             )}
 
-            {/* LOGOUT POPUP MODAL */}
+            {/* LOGOUT MODAL */}
             {showLogoutModal && (
                 <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
                     <div className="bg-white border border-slate-100 p-8 rounded-3xl w-full max-w-sm text-center shadow-2xl">
@@ -357,7 +377,7 @@ const Dashboard = ({ navigate }) => {
                 </div>
             )}
 
-            {/* APPLICATION CONFIRM MODAL */}
+            {/* CONFIRM APP MODAL */}
             {showAppConfirmModal && (
                 <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-50 flex items-center justify-center p-4">
                     <div className="bg-white border border-slate-100 p-8 rounded-3xl w-full max-w-sm text-center shadow-2xl">
@@ -388,12 +408,10 @@ const Dashboard = ({ navigate }) => {
             )}
 
             <div className="max-w-6xl mx-auto px-6">
-                
-                {/* Navbar Layout (Header Clean Area) */}
+                {/* Navbar Layout */}
                 <div className="w-full flex items-center justify-between border-b border-slate-200 pb-6 mb-10">
                     <div>
                         <h1 className="text-4xl font-black text-slate-900 tracking-tight">Welcome, <span className="text-indigo-600">{user.name || user.email}</span>!</h1>
-                        {/* FIXED: Dynamic color allocation check for admin visibility role */}
                         <p className="text-slate-500 mt-2 text-xs font-semibold tracking-wider uppercase">Identity Domain Node: <span className={`${user.role === 'admin' ? 'text-red-500 font-black bg-red-50 border border-red-100 px-2 py-0.5 rounded' : 'text-purple-600 font-bold'}`}>{user.role}</span></p>
                     </div>
                     <div className="flex gap-4">
@@ -418,17 +436,16 @@ const Dashboard = ({ navigate }) => {
                                     <div onClick={() => setActiveTab('jobs')} className="bg-white p-8 rounded-3xl border border-slate-200/60 shadow-[0_8px_30px_rgb(0,0,0,0.02)] hover:shadow-[0_8px_30px_rgb(0,0,0,0.06)] hover:-translate-y-1 transition-all duration-300 cursor-pointer">
                                         <div className="text-3xl mb-4 bg-indigo-50 border border-indigo-100 w-12 h-12 flex items-center justify-center rounded-2xl text-indigo-600">💼</div>
                                         <h3 className="text-lg font-bold mb-2 text-slate-900">Job Board</h3>
-                                        <p className="text-slate-500 text-sm leading-relaxed">See exclusive referral vacancies shared by alumni experts.</p>
+                                        <p className="text-slate-500 text-sm leading-relaxed">See vacancies shared by alumni experts.</p>
                                     </div>
                                     <div onClick={() => setActiveTab('chats')} className="bg-white p-8 rounded-3xl border border-slate-200/60 shadow-[0_8px_30px_rgb(0,0,0,0.02)] hover:shadow-[0_8px_30px_rgb(0,0,0,0.06)] hover:-translate-y-1 transition-all duration-300 cursor-pointer">
                                         <div className="text-3xl mb-4 bg-indigo-50 border border-indigo-100 w-12 h-12 flex items-center justify-center rounded-2xl text-indigo-600">💬</div>
                                         <h3 className="text-lg font-bold mb-2 text-slate-900">My Chats</h3>
-                                        <p className="text-slate-500 text-sm leading-relaxed">Open secure communication rooms to message alumni network lines.</p>
+                                        <p className="text-slate-500 text-sm leading-relaxed">Open secure rooms to message alumni lines.</p>
                                     </div>
                                 </div>
-
                                 <div className="bg-white border border-slate-200 p-6 rounded-3xl shadow-sm">
-                                    <h4 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-4">Your Application Status Tracker (Live from MySQL)</h4>
+                                    <h4 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-4">Your Application Status Tracker</h4>
                                     {referralRequests.length === 0 ? (
                                         <p className="text-xs text-slate-400 font-medium">You have not transmitted any job referral logs yet.</p>
                                     ) : (
@@ -439,13 +456,7 @@ const Dashboard = ({ navigate }) => {
                                                         <span className="text-slate-900 font-bold text-sm block">Position Record (ID: {req.job_id})</span>
                                                         <span className="text-slate-500 mt-1 block">Target Entity: {req.company}</span>
                                                     </div>
-                                                    <span className={`px-3 py-1.5 rounded-lg font-bold ${
-                                                        req.status === 'Approved & Referred' ? 'bg-emerald-50 text-emerald-600 border border-emerald-200' : 
-                                                        req.status === 'Declined' ? 'bg-red-50 text-red-600 border border-red-200' : 
-                                                        'bg-amber-50 text-amber-600 border border-amber-200'
-                                                    }`}>
-                                                        {req.status}
-                                                    </span>
+                                                    <span className={`px-3 py-1.5 rounded-lg font-bold ${req.status === 'Approved & Referred' ? 'bg-emerald-50 text-emerald-600 border border-emerald-200' : req.status === 'Declined' ? 'bg-red-50 text-red-600 border border-red-200' : 'bg-amber-50 text-amber-600 border border-amber-200'}`}>{req.status}</span>
                                                 </div>
                                             ))}
                                         </div>
@@ -464,45 +475,43 @@ const Dashboard = ({ navigate }) => {
                                 <div onClick={() => setActiveTab('requests')} className="bg-white p-8 rounded-3xl border border-slate-200/60 shadow-[0_8px_30px_rgb(0,0,0,0.02)] hover:shadow-[0_8px_30px_rgb(0,0,0,0.06)] hover:-translate-y-1 transition-all duration-300 cursor-pointer">
                                     <div className="text-3xl mb-4 bg-purple-50 border border-purple-100 w-12 h-12 flex items-center justify-center rounded-2xl text-purple-600">📥</div>
                                     <h3 className="text-lg font-bold mb-2 text-slate-900">Inbound Requests</h3>
-                                    <p className="text-slate-500 text-sm leading-relaxed">View inbound requests transmitted by students matching your listings.</p>
+                                    <p className="text-slate-500 text-sm leading-relaxed">View inbound requests matching your listings.</p>
                                 </div>
                                 <div onClick={() => setActiveTab('chats')} className="bg-white p-8 rounded-3xl border border-slate-200/60 shadow-[0_8px_30px_rgb(0,0,0,0.02)] hover:shadow-[0_8px_30px_rgb(0,0,0,0.06)] hover:-translate-y-1 transition-all duration-300 cursor-pointer">
                                     <div className="text-3xl mb-4 bg-purple-50 border border-purple-100 w-12 h-12 flex items-center justify-center rounded-2xl text-purple-600">💬</div>
                                     <h3 className="text-lg font-bold mb-2 text-slate-900">Student Chat Logs</h3>
-                                    <p className="text-slate-500 text-sm leading-relaxed">Review incoming direct query messages from students pool threads.</p>
+                                    <p className="text-slate-500 text-sm leading-relaxed">Review incoming direct queries from student pool threads.</p>
                                 </div>
                             </div>
                         )}
 
-                        {/* --- FIXED FEATURE: 100% BRAND NEW ADMIN PANEL DIRECTORIES LAYER --- */}
+                        {/* --- EXPLICIT ADMIN INTERFACE DATA RENDERS --- */}
                         {user.role === 'admin' && (
                             <div className="space-y-10">
-                                {/* Live Stats Counter Bar */}
                                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
                                     <div className="bg-white border border-slate-200/80 p-6 rounded-2xl shadow-sm flex items-center justify-between">
                                         <div>
                                             <span className="text-xs font-bold uppercase text-slate-400 tracking-wider">Total Registered Students</span>
-                                            <div className="text-3xl font-black text-slate-900 mt-1">{adminStudentsList.length}</div>
+                                            <div className="text-3xl font-black text-slate-900 mt-1">{adminStats.totalStudents}</div>
                                         </div>
                                         <div className="text-3xl bg-blue-50 text-blue-600 p-3 rounded-xl border border-blue-100/50">🎓</div>
                                     </div>
                                     <div className="bg-white border border-slate-200/80 p-6 rounded-2xl shadow-sm flex items-center justify-between">
                                         <div>
                                             <span className="text-xs font-bold uppercase text-slate-400 tracking-wider">Verified Alumni Nodes</span>
-                                            <div className="text-3xl font-black text-slate-900 mt-1">{adminAlumniList.length}</div>
+                                            <div className="text-3xl font-black text-slate-900 mt-1">{adminStats.totalAlumni}</div>
                                         </div>
                                         <div className="text-3xl bg-emerald-50 text-emerald-600 p-3 rounded-xl border border-emerald-100/50">🏢</div>
                                     </div>
                                     <div className="bg-white border border-slate-200/80 p-6 rounded-2xl shadow-sm flex items-center justify-between">
                                         <div>
                                             <span className="text-xs font-bold uppercase text-slate-400 tracking-wider">Global System Volume</span>
-                                            <div className="text-3xl font-black text-slate-900 mt-1">{adminStudentsList.length + adminAlumniList.length}</div>
+                                            <div className="text-3xl font-black text-slate-900 mt-1">{adminStats.globalVolume}</div>
                                         </div>
                                         <div className="text-3xl bg-purple-50 text-purple-600 p-3 rounded-xl border border-purple-100/50">⚡</div>
                                     </div>
                                 </div>
 
-                                {/* Student System Table Logs */}
                                 <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
                                     <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
                                         <h3 className="text-base font-bold text-slate-900">Student System Directory</h3>
@@ -534,7 +543,6 @@ const Dashboard = ({ navigate }) => {
                                     </div>
                                 </div>
 
-                                {/* Alumni System Table Logs */}
                                 <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
                                     <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
                                         <h3 className="text-base font-bold text-slate-900">Alumni Verified Corporate Matrix</h3>
@@ -577,47 +585,46 @@ const Dashboard = ({ navigate }) => {
                             <h2 className="text-2xl font-black text-indigo-600">Verified Connections Logs</h2>
                             <input type="text" placeholder="🔍 Search profiles..." value={mentorSearchQuery} onChange={(e) => setMentorSearchQuery(e.target.value)} className="bg-white border border-slate-200 focus:border-indigo-500 px-4 py-2 rounded-xl text-xs outline-none text-slate-800 w-full md:w-64 shadow-sm transition" />
                         </div>
-                        {filteredMentors.length === 0 ? ( <div className="bg-white border border-slate-200 rounded-3xl p-8 text-center text-slate-400 shadow-sm">No active connections grid tracking data.</div> ) : (
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                {filteredMentors.map(mentor => (
-                                    <div key={mentor.email} className="bg-white border border-slate-200/80 p-6 rounded-3xl flex items-start gap-4 shadow-sm">
-                                        <div className="text-4xl bg-slate-50 border border-slate-100 p-3 rounded-2xl text-slate-700">👨‍💻</div>
-                                        <div className="flex-1">
-                                            <h4 className="text-lg font-bold text-slate-900">{mentor.name}</h4>
-                                            <p className="text-sm font-semibold text-indigo-600">{mentor.role === 'alumni' ? 'Verified Alumni Expert' : 'Student Node'}</p>
-                                            <p className="text-xs text-slate-400 mt-1">{mentor.email}</p>
-                                            <button onClick={() => { setSelectedMentorEmail(mentor.email.toLowerCase().trim()); setActiveTab('chats'); }} className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold px-4 py-2 mt-4 rounded-xl shadow-md shadow-indigo-500/10 transition">Connect & Chat</button>
-                                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            {filteredMentors.map(mentor => (
+                                <div key={mentor.email} className="bg-white border border-slate-200/80 p-6 rounded-3xl flex items-start gap-4 shadow-sm">
+                                    <div className="text-4xl bg-slate-50 border border-slate-100 p-3 rounded-2xl text-slate-700">👨‍💻</div>
+                                    <div className="flex-1">
+                                        <h4 className="text-lg font-bold text-slate-900">{mentor.name}</h4>
+                                        <p className="text-sm font-semibold text-indigo-600">{mentor.role === 'alumni' ? 'Verified Alumni Expert' : 'Student Node'}</p>
+                                        <p className="text-xs text-slate-400 mt-1">{mentor.email}</p>
+                                        <button onClick={() => { setSelectedMentorEmail(mentor.email.toLowerCase().trim()); setActiveTab('chats'); }} className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold px-4 py-2 mt-4 rounded-xl shadow-md transition">Connect & Chat</button>
                                     </div>
-                                ))}
-                            </div>
-                        )}
+                                </div>
+                            ))}
+                        </div>
                     </div>
                 )}
 
-                {/* JOB BOARD */}
+                {/* JOB BOARD VIEW WITH EXPIRY NOTIFICATION */}
                 {activeTab === 'jobs' && (
                     <div className="space-y-6">
                         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                             <h2 className="text-2xl font-black text-indigo-600">Active Internal Referrals</h2>
                             <input type="text" placeholder="🔍 Search jobs..." value={jobSearchQuery} onChange={(e) => setJobSearchQuery(e.target.value)} className="bg-white border border-slate-200 focus:border-indigo-500 px-4 py-2 rounded-xl text-xs outline-none text-slate-800 w-full md:w-72 shadow-sm transition" />
                         </div>
-                        {filteredJobs.length === 0 ? ( <div className="bg-white border border-slate-200 rounded-3xl p-8 text-center text-slate-400 shadow-sm text-xs">No vacancies found.</div> ) : (
-                            <div className="space-y-4">
-                                {filteredJobs.map(job => (
-                                    <div key={job.id} className="bg-white border border-slate-200/80 p-6 rounded-3xl flex flex-col md:flex-row md:items-start justify-between gap-4 shadow-sm hover:shadow-md transition">
-                                        <div className="flex-1">
-                                            <h4 className="text-lg font-black text-slate-900">{job.title}</h4>
-                                            <p className="text-sm text-slate-500 font-medium">{job.company} — <span className="text-xs text-slate-400">{job.location}</span></p>
-                                            <p className="text-xs text-purple-600 bg-purple-50 border border-purple-100 px-2.5 py-0.5 rounded-full inline-block mt-2 font-medium">Exp: {job.experience} — By: {job.posted_by}</p>
-                                        </div>
-                                        {user.role === 'student' && (
-                                            <button onClick={() => handleTriggerApplicationModal(job)} className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-6 py-3 rounded-xl shadow-md transition md:self-center shrink-0">Request Referral</button>
+                        <div className="space-y-4">
+                            {filteredJobs.map(job => (
+                                <div key={job.id} className="bg-white border border-slate-200/80 p-6 rounded-3xl flex flex-col md:flex-row md:items-start justify-between gap-4 shadow-sm hover:shadow-md transition">
+                                    <div className="flex-1">
+                                        <h4 className="text-lg font-black text-slate-900">{job.title}</h4>
+                                        <p className="text-sm text-slate-500 font-medium">{job.company} — <span className="text-xs text-slate-400">{job.location}</span></p>
+                                        <p className="text-xs text-purple-600 bg-purple-50 border border-purple-100 px-2.5 py-0.5 rounded-full inline-block mt-2 font-medium">Exp: {job.experience} — By: {job.posted_by}</p>
+                                        {job.deadline && (
+                                            <p className="text-[11px] text-red-500 font-bold mt-2 bg-red-50 border border-red-100 rounded px-2 py-0.5 inline-block">⏱️ Register Before: {new Date(job.deadline).toLocaleString()}</p>
                                         )}
                                     </div>
-                                ))}
-                            </div>
-                        )}
+                                    {user.role === 'student' && (
+                                        <button onClick={() => handleTriggerApplicationModal(job)} className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-6 py-3 rounded-xl shadow-md transition md:self-center shrink-0">Request Referral</button>
+                                    )}
+                                </div>
+                            ))}
+                        </div>
                     </div>
                 )}
 
@@ -632,6 +639,10 @@ const Dashboard = ({ navigate }) => {
                                 <input type="text" name="location" required placeholder="Location" value={referralForm.location} onChange={handleFormChange} className="w-full bg-slate-50 border border-slate-200 focus:border-purple-500 focus:bg-white rounded-xl px-4 py-3 text-sm outline-none text-slate-800 transition" />
                                 <input type="text" name="experience" required placeholder="Experience Bracket" value={referralForm.experience} onChange={handleFormChange} className="w-full bg-slate-50 border border-slate-200 focus:border-purple-500 focus:bg-white rounded-xl px-4 py-3 text-sm outline-none text-slate-800 transition" />
                             </div>
+                            <div>
+                                <label className="block text-[10px] font-bold text-purple-500 uppercase mb-1.5 tracking-wider">Registration Expiry Deadline Time</label>
+                                <input type="datetime-local" name="deadline" value={referralForm.deadline} onChange={handleFormChange} className="w-full bg-slate-50 border border-slate-200 focus:border-purple-500 focus:bg-white rounded-xl px-4 py-3 text-sm outline-none text-slate-500 transition" />
+                            </div>
                             <textarea name="eligibilityCriteria" rows="3" placeholder="Enter requirements..." value={referralForm.eligibilityCriteria} onChange={handleFormChange} className="w-full bg-slate-50 border border-slate-200 focus:border-purple-500 focus:bg-white rounded-xl px-4 py-3 text-sm outline-none text-slate-800 resize-none transition" />
                             <button type="submit" className="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-3.5 rounded-xl text-sm shadow-md transition">Broadcast Referral Listing</button>
                         </form>
@@ -642,109 +653,87 @@ const Dashboard = ({ navigate }) => {
                 {activeTab === 'requests' && (
                     <div>
                         <h2 className="text-2xl font-black text-purple-400 mb-6">Inbound Student Referral Requests</h2>
-                        {referralRequests.length === 0 ? ( <div className="bg-white border border-slate-200 rounded-3xl p-8 text-center text-slate-400 shadow-sm">📥 No candidate logs found.</div> ) : (
-                            <div className="space-y-4">
-                                {referralRequests.map(req => (
-                                    <div key={req.id} className="bg-white border border-slate-200 p-6 rounded-3xl flex flex-col gap-4 text-left shadow-sm">
-                                        <div className="flex flex-col md:flex-row md:items-start justify-between gap-4 border-b border-slate-100 pb-4">
-                                            <div>
-                                                <h4 className="text-xl font-black text-slate-900">{req.student_name}</h4>
-                                                <p className="text-xs text-slate-500 font-medium">Contact Email: {req.student_email}</p>
-                                                <p className="text-[11px] mt-2 font-bold text-slate-600">Current Status: <span className={`${req.status === 'Approved & Referred' ? 'text-emerald-600' : req.status === 'Declined' ? 'text-red-600' : 'text-amber-400'}`}>{req.status}</span></p>
-                                            </div>
-                                            <div className="flex gap-2">
-                                                {req.status === 'Pending Review' ? (
-                                                    <>
-                                                        <button onClick={() => handleTriggerUpdateRequestStatus(req.id, 'Declined')} className="bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 text-xs font-bold px-4 py-2.5 rounded-xl transition">Decline Candidate</button>
-                                                        <button onClick={() => handleTriggerUpdateRequestStatus(req.id, 'Approved & Referred')} className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-5 py-2.5 rounded-xl shadow-md transition">Accept & Refer</button>
-                                                    </>
-                                                ) : (
-                                                    <span className="text-xs text-slate-400 border border-slate-200 px-3 py-1.5 rounded-xl italic bg-slate-50">Logged Action Saved</span>
-                                                )}
-                                            </div>
+                        <div className="space-y-4">
+                            {referralRequests.map(req => (
+                                <div key={req.id} className="bg-white border border-slate-200 p-6 rounded-3xl flex flex-col gap-4 text-left shadow-sm">
+                                    <div className="flex flex-col md:flex-row md:items-start justify-between gap-4 border-b border-slate-100 pb-4">
+                                        <div>
+                                            <h4 className="text-xl font-black text-slate-900">{req.student_name}</h4>
+                                            <p className="text-xs text-slate-500 font-medium">Contact Email: {req.student_email}</p>
+                                            <p className="text-[11px] mt-2 font-bold text-slate-600">Current Status: <span className={`${req.status === 'Approved & Referred' ? 'text-emerald-600' : req.status === 'Declined' ? 'text-red-600' : 'text-amber-400'}`}>{req.status}</span></p>
                                         </div>
-                                        {req.resume_url && (
-                                            <div className="pt-1">
-                                                <a href={req.resume_url} target="_blank" rel="noopener noreferrer" className="inline-flex bg-gradient-to-r from-indigo-600 to-blue-600 text-white hover:from-indigo-700 hover:to-blue-700 text-xs font-black px-6 py-3 rounded-xl shadow-md transition items-center gap-2 cursor-pointer">📄 Open & Review Candidate Resume Document →</a>
-                                            </div>
-                                        )}
+                                        <div className="flex gap-2">
+                                            {req.status === 'Pending Review' ? (
+                                                <>
+                                                    <button onClick={() => handleTriggerUpdateRequestStatus(req.id, 'Declined')} className="bg-red-50 text-red-600 border border-red-200 text-xs font-bold px-4 py-2.5 rounded-xl transition">Decline Candidate</button>
+                                                    <button onClick={() => handleTriggerUpdateRequestStatus(req.id, 'Approved & Referred')} className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-5 py-2.5 rounded-xl shadow-md transition">Accept & Refer</button>
+                                                </>
+                                            ) : (
+                                                <span className="text-xs text-slate-400 border border-slate-200 px-3 py-1.5 rounded-xl italic bg-slate-50">Logged Action Saved</span>
+                                            )}
+                                        </div>
                                     </div>
-                                ))}
-                            </div>
-                        )}
+                                    {req.resume_url && (
+                                        <div className="pt-1">
+                                            <a href={req.resume_url} target="_blank" rel="noopener noreferrer" className="inline-flex bg-gradient-to-r from-indigo-600 to-blue-600 text-white text-xs font-black px-6 py-3 rounded-xl shadow-md transition items-center gap-2 cursor-pointer">📄 Open Resume Document →</a>
+                                        </div>
+                                    )}
+                                </div>
+                            ))}
+                        </div>
                     </div>
                 )}
 
-                {/* CHATS INTERFACE SYSTEM */}
+                {/* CHATS INTERFACE SYSTEM WITH UNREAD DOT SYMBOL */}
                 {activeTab === 'chats' && (
-                    <div className="w-full grid grid-cols-1 md:grid-cols-3 bg-white border border-slate-200 rounded-3xl h-[600px] overflow-hidden shadow-[0_8px_30px_rgb(0,0,0,0.03)]">
-                        
-                        {/* Sidebar Column */}
+                    <div className="w-full grid grid-cols-1 md:grid-cols-3 bg-white border border-slate-200 rounded-3xl h-[600px] overflow-hidden shadow-sm">
                         <div className="border-r border-slate-200 bg-slate-50/50 p-4 overflow-y-auto flex flex-col gap-2 relative">
-                            <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 px-2">
-                                {user.role === 'student' ? 'Threads Log (Alumni)' : 'Incoming Student Logs'}
-                            </h3>
-                            {filteredMentors.length === 0 ? (
-                                <div className="text-xs text-slate-400 p-4 italic">No active connections found.</div>
-                            ) : (
-                                filteredMentors.map(mentor => {
-                                    const isSelected = selectedMentorEmail === mentor.email.toLowerCase().trim();
-                                    return (
-                                        <div key={mentor.email} onClick={() => setSelectedMentorEmail(mentor.email.toLowerCase().trim())} className={`p-3 rounded-xl flex items-center gap-3 cursor-pointer transition relative ${isSelected ? 'bg-indigo-50 border border-indigo-100 text-slate-900' : 'hover:bg-slate-100 border border-transparent text-slate-600'}`}>
-                                            {isSelected && <div className="absolute left-0 top-3 bottom-3 w-1 bg-indigo-600 rounded-r-md"></div>}
-                                            <div className={`text-xl p-2 rounded-lg ${isSelected ? 'bg-white shadow-inner text-indigo-600' : 'bg-slate-200 text-slate-600'}`}>💬</div>
-                                            <div className="flex-1 overflow-hidden text-left">
+                            <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 px-2">{user.role === 'student' ? 'Threads Log (Alumni)' : 'Incoming Student Logs'}</h3>
+                            {filteredMentors.map(mentor => {
+                                const isSelected = selectedMentorEmail === mentor.email.toLowerCase().trim();
+                                return (
+                                    <div key={mentor.email} onClick={() => setSelectedMentorEmail(mentor.email.toLowerCase().trim())} className={`p-3 rounded-xl flex items-center gap-3 cursor-pointer transition relative ${isSelected ? 'bg-indigo-50 border border-indigo-100 text-slate-900' : 'hover:bg-slate-100 border border-transparent text-slate-600'}`}>
+                                        <div className="flex-1 overflow-hidden text-left flex items-center justify-between">
+                                            <div className="truncate">
                                                 <h5 className="text-sm font-bold truncate">{mentor.name || 'Connection Member'}</h5>
                                                 <p className="text-xs text-slate-400 truncate font-medium">{mentor.email}</p>
                                             </div>
+                                            {mentor.hasUnread === 1 && !isSelected && (
+                                                <span className="w-2.5 h-2.5 bg-red-500 rounded-full min-w-[10px] min-h-[10px] animate-pulse shadow-sm shadow-red-400 mr-2"></span>
+                                            )}
                                         </div>
-                                    );
-                                })
-                            )}
+                                    </div>
+                                );
+                            })}
                         </div>
-
-                        {/* Chat Canvas Section */}
                         <div className="md:col-span-2 flex flex-col justify-between h-full bg-[#fcfdfe]">
                             {selectedMentorEmail ? (
                                 <>
                                     <div className="border-b border-slate-200 p-4 bg-white shadow-sm flex flex-col text-left">
                                         <h4 className="text-sm font-bold text-slate-900">{selectedMentorEmail}</h4>
-                                        <p className="text-[10px] text-slate-400 uppercase tracking-widest font-mono font-bold mt-0.5">Secure Channel Synced</p>
                                     </div>
-                                    
-                                    {/* Chat Workspace Canvas */}
                                     <div ref={chatContainerRef} className="flex-1 p-6 overflow-y-auto space-y-4 flex flex-col custom-scrollbar">
                                         {globalChats.map((msg, index) => {
                                             const senderEmailStr = msg.senderEmail || msg.sender_email || '';
-                                            const msgText = msg.text || msg.message_text || '';
-                                            const msgTime = msg.time || msg.timestamp || '';
-                                            const senderName = msg.senderName || msg.sender_name || senderEmailStr;
-                                            
                                             const isMe = senderEmailStr.toLowerCase().trim() === user.email.toLowerCase().trim();
-                                            
                                             return (
                                                 <div key={index} className={`max-w-[70%] rounded-2xl px-4 py-2.5 text-sm flex flex-col shadow-sm border ${isMe ? 'bg-indigo-600 border-indigo-500 text-white self-end rounded-tr-none' : 'bg-slate-100 border-slate-200/80 text-slate-800 self-start rounded-tl-none'}`}>
-                                                    <span className={`text-[9px] mb-0.5 font-bold ${isMe ? 'text-indigo-200' : 'text-slate-400'}`}>{senderName}</span>
-                                                    <span className="text-left leading-relaxed break-words">{msgText}</span>
-                                                    <span className={`text-[9px] mt-1 font-medium text-right ${isMe ? 'text-indigo-200/80' : 'text-slate-400'}`}>{msgTime}</span>
+                                                    <span className="text-left leading-relaxed break-words">{msg.text || msg.message_text}</span>
                                                 </div>
                                             );
                                         })}
                                     </div>
-                                    
-                                    {/* Footer Input Box */}
                                     <form onSubmit={handleSendMessage} className="flex gap-3 border-t border-slate-200 p-4 bg-white">
-                                        <input type="text" placeholder="Type message..." value={typedMessage} onChange={(e) => setTypedMessage(e.target.value)} className="flex-1 bg-slate-50 border border-slate-200 focus:border-indigo-500 focus:bg-white rounded-xl px-4 text-sm outline-none text-slate-800 transition shadow-inner" />
-                                        <button type="submit" className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2.5 rounded-xl font-bold text-sm shadow-md shadow-indigo-600/10 transition">Send</button>
+                                        <input type="text" placeholder="Type message..." value={typedMessage} onChange={(e) => setTypedMessage(e.target.value)} className="flex-1 bg-slate-50 border border-slate-200 focus:border-indigo-500 focus:bg-white rounded-xl px-4 text-sm outline-none transition" />
+                                        <button type="submit" className="bg-indigo-600 text-white px-6 py-2.5 rounded-xl font-bold text-sm transition">Send</button>
                                     </form>
                                 </>
                             ) : ( 
-                                <div className="flex flex-col items-center justify-center text-center h-full py-10 text-slate-400 text-sm">📥 Select an active connection channel from the list to pull data.</div> 
+                                <div className="flex flex-col items-center justify-center text-center h-full py-10 text-slate-400 text-sm">📥 Select an active connection channel.</div> 
                             )}
                         </div>
                     </div>
                 )}
-
             </div>
         </div>
     );
