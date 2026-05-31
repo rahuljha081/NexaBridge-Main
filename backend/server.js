@@ -58,7 +58,6 @@ app.post('/api/auth/google-login', async (req, res) => {
 
         console.log(`\n🔒 Google Verification: Auth request for ${verifiedEmail} [Target Role: ${role}]`);
 
-        // Check both email AND role inside the WHERE clause to differentiate states completely
         const checkUserSql = "SELECT id, username as name, email, role FROM users WHERE email = ? AND role = ?";
         const [results] = await db.query(checkUserSql, [verifiedEmail, role]);
 
@@ -68,9 +67,8 @@ app.post('/api/auth/google-login', async (req, res) => {
                 success: true, 
                 backendToken: "google-verified-jwt-node-token", 
                 user: results[0] 
-                });
+            });
         } else {
-            // If no record exists for this combination, create a separate record for this workspace role!
             console.log(`📝 Sync Engine: Registering new dynamic node -> ${verifiedEmail} as [${role}]`);
             const insertUserSql = "INSERT INTO users (username, email, password, role) VALUES (?, ?, 'OAUTH_PROTECTED_HASH', ?)";
             const [insertResult] = await db.query(insertUserSql, [verifiedName, verifiedEmail, role]);
@@ -120,29 +118,25 @@ app.post('/api/login', async (req, res) => {
 });
 
 
-// ==================== 3. DIRECTORY ENGINE (FIXED EXTRA BLANK CHATS BUG) ====================
+// ==================== 3. DIRECTORY ENGINE (LATEST CHAT TOP SORTING) ====================
 
 app.get('/api/mentors', async (req, res) => {
     const { fetchStudents, email } = req.query;
     const cleanEmail = (email && email !== 'null' && email !== 'undefined' && email.trim() !== '') ? email.toLowerCase().trim() : null;
 
     try {
-        // ADMIN MODE: Fetch full students directory rows
         if (fetchStudents === 'true' && !cleanEmail) {
             const [results] = await db.query("SELECT username as name, email, role FROM users WHERE role = 'student'");
             return res.json(results);
         }
 
-        // ADMIN MODE: Fetch full alumni directory rows
         if (fetchStudents !== 'true' && !cleanEmail) {
             const [results] = await db.query("SELECT username as name, email, role FROM users WHERE role = 'alumni'");
             return res.json(results);
         }
         
-        // LOGGED USERS CHAT PANEL CONTEXT
         if (cleanEmail) {
             if (fetchStudents === 'true') {
-                // ALUMNI VIEW: Unread indicator logic for incoming student messages
                 const sql = `
                     SELECT DISTINCT u.username as name, u.email, u.role,
                     EXISTS (
@@ -150,7 +144,12 @@ app.get('/api/mentors', async (req, res) => {
                         WHERE c.chat_key LIKE CONCAT('%', ?, '%') 
                         AND LOWER(c.sender_email) = LOWER(u.email) 
                         AND c.is_read = 0
-                    ) as hasUnread
+                    ) as hasUnread,
+                    COALESCE((
+                        SELECT MAX(id) FROM chats 
+                        WHERE chat_key LIKE CONCAT('%', ?, '%') 
+                        AND (LOWER(sender_email) = LOWER(u.email) OR chat_key LIKE CONCAT('%', LOWER(u.email), '%'))
+                    ), 0) as latestMsgId
                     FROM users u 
                     WHERE u.role = 'student' 
                     AND u.email IN (
@@ -158,11 +157,11 @@ app.get('/api/mentors', async (req, res) => {
                         UNION
                         SELECT DISTINCT REPLACE(REPLACE(chat_key, ?, ''), '_', '') FROM chats WHERE chat_key LIKE CONCAT('%', ?, '%')
                     )
+                    ORDER BY latestMsgId DESC
                 `;
-                const [results] = await db.query(sql, [cleanEmail, cleanEmail, cleanEmail, cleanEmail]);
+                const [results] = await db.query(sql, [cleanEmail, cleanEmail, cleanEmail, cleanEmail, cleanEmail]);
                 return res.json(results);
             } else {
-                // STUDENT VIEW FIX: Sirf wahi alumni return honge jinke saath actual chat history records table mein hain!
                 const sql = `
                     SELECT DISTINCT u.username as name, u.email, u.role,
                     EXISTS (
@@ -170,7 +169,12 @@ app.get('/api/mentors', async (req, res) => {
                         WHERE c.chat_key LIKE CONCAT('%', ?, '%') 
                         AND LOWER(c.sender_email) = LOWER(u.email) 
                         AND c.is_read = 0
-                    ) as hasUnread
+                    ) as hasUnread,
+                    COALESCE((
+                        SELECT MAX(id) FROM chats 
+                        WHERE chat_key LIKE CONCAT('%', ?, '%') 
+                        AND (LOWER(sender_email) = LOWER(u.email) OR chat_key LIKE CONCAT('%', LOWER(u.email), '%'))
+                    ), 0) as latestMsgId
                     FROM users u 
                     WHERE u.role = 'alumni' 
                     AND u.email IN (
@@ -178,10 +182,9 @@ app.get('/api/mentors', async (req, res) => {
                         UNION
                         SELECT DISTINCT REPLACE(REPLACE(chat_key, ?, ''), '_', '') FROM chats WHERE chat_key LIKE CONCAT('%', ?, '%')
                     )
+                    ORDER BY latestMsgId DESC
                 `;
-                const [results] = await db.query(sql, [cleanEmail, cleanEmail, cleanEmail, cleanEmail]);
-                
-                // Extra layer safety: Ensure we filter out any row matching our own current student email
+                const [results] = await db.query(sql, [cleanEmail, cleanEmail, cleanEmail, cleanEmail, cleanEmail]);
                 return res.json(results.filter(m => m.email.toLowerCase().trim() !== cleanEmail));
             }
         }
@@ -193,7 +196,7 @@ app.get('/api/mentors', async (req, res) => {
 });
 
 
-// ==================== 4. JOB BOARD ENGINES (WITH AUTOMATIC EXPIRY) ====================
+// ==================== 4. JOB BOARD ENGINES ====================
 
 app.post('/api/jobs', async (req, res) => {
     const { title, company, location, description, experience, posted_by, deadline } = req.body;
@@ -209,7 +212,6 @@ app.post('/api/jobs', async (req, res) => {
 });
 
 app.get('/api/jobs', async (req, res) => {
-    // FIXED: Ab database se sirf wahi jobs aayengi jinki deadline expire nahi hui hai (ya jinki deadline blank hai)
     const sql = "SELECT id, title, company, location, description, experience, posted_by, deadline FROM jobs WHERE deadline > NOW() OR deadline IS NULL ORDER BY id DESC";
     try {
         const [results] = await db.query(sql);
@@ -220,46 +222,27 @@ app.get('/api/jobs', async (req, res) => {
 });
 
 
-// ==================== 5. REFERRAL REQUESTS TRACKER (ROLE BOUNDED) ====================
+// ==================== 5. REFERRAL TRACKER (AUTO-MESSAGE MAPPING FIX) ====================
 
 app.get('/api/referrals', async (req, res) => {
     const { email, role } = req.query;
-
-    if (!email || !role) {
-        return res.status(400).json({ error: "Missing identity mapping credentials payload" });
-    }
-
+    if (!email || !role) return res.status(400).json({ error: "Missing identity credentials" });
     const cleanEmail = email.toLowerCase().trim();
 
     try {
         if (role === 'student') {
-            const sql = `
-                SELECT id, student_name, student_email, job_id, company, resume_url, status 
-                FROM referral_requests 
-                WHERE LOWER(student_email) = ?
-            `;
+            const sql = `SELECT id, student_name, student_email, job_id, company, resume_url, status FROM referral_requests WHERE LOWER(student_email) = ?`;
             const [results] = await db.query(sql, [cleanEmail]);
             return res.json(results);
         } 
-        
         if (role === 'alumni') {
-            const sql = `
-                SELECT r.id, r.student_name, r.student_email, r.job_id, r.company, r.resume_url, r.status 
-                FROM referral_requests r
-                INNER JOIN jobs j ON r.job_id = j.id
-                WHERE LOWER(j.posted_by) = ? OR j.posted_by = (SELECT username FROM users WHERE LOWER(email) = ? LIMIT 1)
-                ORDER BY r.id DESC
-            `;
+            const sql = `SELECT r.id, r.student_name, r.student_email, r.job_id, r.company, r.resume_url, r.status FROM referral_requests r INNER JOIN jobs j ON r.job_id = j.id WHERE LOWER(j.posted_by) = ? OR j.posted_by = (SELECT username FROM users WHERE LOWER(email) = ? LIMIT 1) ORDER BY r.id DESC`;
             const [results] = await db.query(sql, [cleanEmail, cleanEmail]);
             return res.json(results);
         }
-
-        const sqlDefault = "SELECT id, student_name, student_email, job_id, company, resume_url, status FROM referral_requests ORDER BY id DESC";
-        const [results] = await db.query(sqlDefault);
+        const [results] = await db.query("SELECT id, student_name, student_email, job_id, company, resume_url, status FROM referral_requests ORDER BY id DESC");
         return res.json(results);
-
     } catch (err) {
-        console.error("❌ Referral fetching pipeline failed:", err);
         return res.status(500).json({ error: err.message });
     }
 });
@@ -278,21 +261,61 @@ app.post('/api/referrals', async (req, res) => {
 app.put('/api/referrals/:id', async (req, res) => {
     const { id } = req.params;
     const { status } = req.body;
-    const sql = "UPDATE referral_requests SET status = ? WHERE id = ?";
+
     try {
-        await db.query(sql, [status, id]);
+        const updateSql = "UPDATE referral_requests SET status = ? WHERE id = ?";
+        await db.query(updateSql, [status, id]);
+
+        if (status === 'Approved & Referred') {
+            const selectReqSql = "SELECT student_name, student_email, company, job_id FROM referral_requests WHERE id = ?";
+            const [reqResults] = await db.query(selectReqSql, [id]);
+
+            if (reqResults.length > 0) {
+                const referral = reqResults[0];
+                
+                const selectJobSql = "SELECT title, posted_by FROM jobs WHERE id = ?";
+                const [jobResults] = await db.query(selectJobSql, [referral.job_id]);
+
+                if (jobResults.length > 0) {
+                    const job = jobResults[0];
+                    const cleanPostedBy = job.posted_by.toLowerCase().trim();
+                    
+                    const selectAlumniSql = "SELECT username, email FROM users WHERE LOWER(TRIM(username)) = ? OR LOWER(TRIM(email)) = ? LIMIT 1";
+                    const [alumniResults] = await db.query(selectAlumniSql, [cleanPostedBy, cleanPostedBy]);
+
+                    if (alumniResults.length > 0) {
+                        const alumniEmail = alumniResults[0].email.toLowerCase().trim();
+                        const alumniName = alumniResults[0].username;
+                        const studentEmail = referral.student_email.toLowerCase().trim();
+
+                        const chatKey = [studentEmail, alumniEmail].sort().join('_');
+                        const currentTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+                        // UPDATED SENDER TEXT BLOCK: Perfect Alignment mapping text string
+                        const finalCustomMessage = `Hello ${referral.student_name}, your referral request for "${job.title}" at ${referral.company} has been approved and successfully referred to the dashboard network! For the first round, all details will be shared in this chat itself. If you have any queries, feel free to ask me here.`;
+
+                        // FIXED IDENTITY DESIGNATION: Directly passing alumni identity tokens safely to enforce alignment rules
+                        const insertChatSql = "INSERT INTO chats (chat_key, sender_email, sender_name, sender_role, message_text, timestamp, is_read) VALUES (?, ?, ?, 'alumni', ?, ?, 0)";
+                        await db.query(insertChatSql, [chatKey, alumniEmail, alumniName, finalCustomMessage, currentTime]);
+                        
+                        console.log(`🤖 Automated System Notification deployed securely from Alumni [${alumniEmail}] to Student [${studentEmail}]`);
+                    }
+                }
+            }
+        }
+
         return res.json({ success: true, message: "Status updated successfully!" });
     } catch (err) {
+        console.error("❌ Status update failed:", err);
         return res.status(500).json({ success: false, error: err.message });
     }
 });
 
 
-// ==================== 6. REAL MESSAGING ENGINE (WITH UNREAD MANAGEMENT) ====================
+// ==================== 6. REAL MESSAGING ENGINE ====================
 
 app.post('/api/messages', async (req, res) => {
     const { chat_key, sender_email, sender_name, sender_role, message_text, timestamp } = req.body;
-    // By default, every new message is written with is_read = 0 (unread)
     const sql = "INSERT INTO chats (chat_key, sender_email, sender_name, sender_role, message_text, timestamp, is_read) VALUES (?, ?, ?, ?, ?, ?, 0)";
     try {
         await db.query(sql, [chat_key, sender_email, sender_name, sender_role, message_text, timestamp]);
@@ -314,7 +337,6 @@ app.get('/api/messages/:chat_key', async (req, res) => {
     }
 });
 
-// Mark all background messages from the opponent as READ
 app.put('/api/messages/mark-read', async (req, res) => {
     const { chat_key, opponent_email } = req.body;
     if (!chat_key || !opponent_email) return res.status(400).json({ error: "Missing configuration variables" });

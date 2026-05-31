@@ -10,7 +10,6 @@ const Dashboard = ({ navigate }) => {
     const [globalChats, setGlobalChats] = useState([]); 
     const [referralRequests, setReferralRequests] = useState([]);
     
-    // Admin state telemetry metrics tracker
     const [adminStats, setAdminStats] = useState({ totalStudents: 0, totalAlumni: 0, globalVolume: 0 });
     const [showLogoutModal, setShowLogoutModal] = useState(false);
     
@@ -53,13 +52,21 @@ const Dashboard = ({ navigate }) => {
         return [email1.toLowerCase().trim(), email2.toLowerCase().trim()].sort().join('_');
     };
 
+    // FIXED SCROLL ENGINE: Standard hooks replacement to prevent list layout jumping or fumbles
     useEffect(() => {
         if (chatContainerRef.current) {
-            chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+            const scrollTimeout = setTimeout(() => {
+                if (chatContainerRef.current) {
+                    chatContainerRef.current.scrollTo({
+                        top: chatContainerRef.current.scrollHeight,
+                        behavior: 'smooth'
+                    });
+                }
+            }, 60); // Strategic delay to ensure elements paint cleanly
+            return () => clearTimeout(scrollTimeout);
         }
-    }, [globalChats, selectedMentorEmail]);
+    }, [globalChats.length, selectedMentorEmail]); 
 
-    // Isolated sidebar dynamic routing context reload
     const loadSidebarThreads = () => {
         if (!user || !user.email || user.role === 'admin') return;
 
@@ -91,9 +98,7 @@ const Dashboard = ({ navigate }) => {
             .then(data => { if (Array.isArray(data)) setJobsList(data); })
             .catch(err => console.error("Jobs load failure:", err));
 
-        // FIXED: Explicit structural endpoints sync check strictly optimized for Admin nodes
         if (user.role === 'admin') {
-            // 1. Fetch telemetry stats
             fetch('http://localhost:5000/api/admin/stats')
                 .then(res => res.json())
                 .then(stats => {
@@ -106,13 +111,11 @@ const Dashboard = ({ navigate }) => {
                     }
                 }).catch(err => console.error(err));
 
-            // 2. Fetch full students database matrix mapping explicitly specifying unread-bypass context strings
             fetch('http://localhost:5000/api/mentors?fetchStudents=true&email=null')
                 .then(res => res.json())
                 .then(studentsData => { if (Array.isArray(studentsData)) setAdminStudentsList(studentsData); })
                 .catch(err => console.error(err));
 
-            // 3. Fetch full alumni database matrix mapping explicitly specifying unread-bypass context strings
             fetch('http://localhost:5000/api/mentors?fetchStudents=false&email=null')
                 .then(res => res.json())
                 .then(alumniData => { if (Array.isArray(alumniData)) setAdminAlumniList(alumniData); })
@@ -485,7 +488,6 @@ const Dashboard = ({ navigate }) => {
                             </div>
                         )}
 
-                        {/* --- EXPLICIT ADMIN INTERFACE DATA RENDERS --- */}
                         {user.role === 'admin' && (
                             <div className="space-y-10">
                                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
@@ -535,37 +537,6 @@ const Dashboard = ({ navigate }) => {
                                                             <td className="px-6 py-3.5 font-bold text-slate-900">{stu.name || 'Anonymous Node'}</td>
                                                             <td className="px-6 py-3.5 font-mono">{stu.email}</td>
                                                             <td className="px-6 py-3.5"><span className="bg-blue-50 text-blue-600 font-bold border border-blue-100 px-2 py-0.5 rounded text-[10px] uppercase">Student</span></td>
-                                                        </tr>
-                                                    ))
-                                                )}
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                </div>
-
-                                <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
-                                    <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
-                                        <h3 className="text-base font-bold text-slate-900">Alumni Verified Corporate Matrix</h3>
-                                        <span className="text-[10px] font-bold bg-emerald-50 text-emerald-600 border border-emerald-100 px-2 py-0.5 rounded-full">Network Active</span>
-                                    </div>
-                                    <div className="overflow-x-auto">
-                                        <table className="w-full text-left border-collapse text-xs">
-                                            <thead>
-                                                <tr className="border-b border-slate-200 bg-slate-50 text-slate-400 font-bold uppercase tracking-wider">
-                                                    <th className="px-6 py-3">Alumni Expert Name</th>
-                                                    <th className="px-6 py-3">Secure Corporate Endpoint</th>
-                                                    <th className="px-6 py-3">Access Credential Token</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                {adminAlumniList.length === 0 ? (
-                                                    <tr><td colSpan="3" className="px-6 py-4 text-center text-slate-400 italic">No alumni profiles logged.</td></tr>
-                                                ) : (
-                                                    adminAlumniList.map((alu, i) => (
-                                                        <tr key={i} className="border-b border-slate-100 hover:bg-slate-50/50 transition text-slate-600">
-                                                            <td className="px-6 py-3.5 font-bold text-slate-900">{alu.name || 'Alumni Member'}</td>
-                                                            <td className="px-6 py-3.5 font-mono">{alu.email}</td>
-                                                            <td className="px-6 py-3.5"><span className="bg-emerald-50 text-emerald-600 font-bold border border-emerald-100 px-2 py-0.5 rounded text-[10px] uppercase">Verified Alumni</span></td>
                                                         </tr>
                                                     ))
                                                 )}
@@ -687,7 +658,7 @@ const Dashboard = ({ navigate }) => {
                 {/* CHATS INTERFACE SYSTEM WITH UNREAD DOT SYMBOL */}
                 {activeTab === 'chats' && (
                     <div className="w-full grid grid-cols-1 md:grid-cols-3 bg-white border border-slate-200 rounded-3xl h-[600px] overflow-hidden shadow-sm">
-                        <div className="border-r border-slate-200 bg-slate-50/50 p-4 overflow-y-auto flex flex-col gap-2 relative">
+                        <div className="border-r border-slate-200 bg-slate-50/50 p-4 overflow-y-auto flex flex-col gap-2 relative h-full">
                             <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 px-2">{user.role === 'student' ? 'Threads Log (Alumni)' : 'Incoming Student Logs'}</h3>
                             {filteredMentors.map(mentor => {
                                 const isSelected = selectedMentorEmail === mentor.email.toLowerCase().trim();
@@ -706,26 +677,33 @@ const Dashboard = ({ navigate }) => {
                                 );
                             })}
                         </div>
-                        <div className="md:col-span-2 flex flex-col justify-between h-full bg-[#fcfdfe]">
+                        
+                        <div className="md:col-span-2 flex flex-col h-full bg-[#fcfdfe] overflow-hidden">
                             {selectedMentorEmail ? (
                                 <>
-                                    <div className="border-b border-slate-200 p-4 bg-white shadow-sm flex flex-col text-left">
+                                    <div className="border-b border-slate-200 p-4 bg-white shadow-sm flex flex-col text-left shrink-0">
                                         <h4 className="text-sm font-bold text-slate-900">{selectedMentorEmail}</h4>
                                     </div>
-                                    <div ref={chatContainerRef} className="flex-1 p-6 overflow-y-auto space-y-4 flex flex-col custom-scrollbar">
+                                    
+                                    {/* FIXED SCROLL CONTAINER: Safe structure mapping rendering thread layers without shake updates */}
+                                    <div 
+                                        ref={chatContainerRef} 
+                                        className="flex-1 p-6 overflow-y-auto space-y-4 flex flex-col min-h-0 custom-scrollbar bg-slate-50/30 scroll-smooth"
+                                    >
                                         {globalChats.map((msg, index) => {
                                             const senderEmailStr = msg.senderEmail || msg.sender_email || '';
                                             const isMe = senderEmailStr.toLowerCase().trim() === user.email.toLowerCase().trim();
                                             return (
-                                                <div key={index} className={`max-w-[70%] rounded-2xl px-4 py-2.5 text-sm flex flex-col shadow-sm border ${isMe ? 'bg-indigo-600 border-indigo-500 text-white self-end rounded-tr-none' : 'bg-slate-100 border-slate-200/80 text-slate-800 self-start rounded-tl-none'}`}>
+                                                <div key={index} className={`max-w-[75%] rounded-2xl px-4 py-2.5 text-sm flex flex-col shadow-sm border ${isMe ? 'bg-indigo-600 border-indigo-500 text-white self-end rounded-tr-none' : 'bg-white border-slate-200 text-slate-800 self-start rounded-tl-none'}`}>
                                                     <span className="text-left leading-relaxed break-words">{msg.text || msg.message_text}</span>
                                                 </div>
                                             );
                                         })}
                                     </div>
-                                    <form onSubmit={handleSendMessage} className="flex gap-3 border-t border-slate-200 p-4 bg-white">
-                                        <input type="text" placeholder="Type message..." value={typedMessage} onChange={(e) => setTypedMessage(e.target.value)} className="flex-1 bg-slate-50 border border-slate-200 focus:border-indigo-500 focus:bg-white rounded-xl px-4 text-sm outline-none transition" />
-                                        <button type="submit" className="bg-indigo-600 text-white px-6 py-2.5 rounded-xl font-bold text-sm transition">Send</button>
+                                    
+                                    <form onSubmit={handleSendMessage} className="flex gap-3 border-t border-slate-200 p-4 bg-white shrink-0 mb-0">
+                                        <input type="text" placeholder="Type message..." value={typedMessage} onChange={(e) => setTypedMessage(e.target.value)} className="flex-1 bg-slate-50 border border-slate-200 focus:border-indigo-500 focus:bg-white rounded-xl px-4 py-3 text-sm outline-none transition" />
+                                        <button type="submit" className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2.5 rounded-xl font-bold text-sm transition shadow-sm">Send</button>
                                     </form>
                                 </>
                             ) : ( 
