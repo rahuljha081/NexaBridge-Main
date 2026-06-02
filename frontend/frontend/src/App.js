@@ -83,12 +83,12 @@ function App() {
   };
 
   return (
-    /* FIXED: Restored your exact structural centering block but swapped slate-900 canvas for clean off-white (#f4f5f7) styling */
-    <div className="w-full min-h-screen bg-[#f4f5f7] text-slate-800 font-sans overflow-y-auto selection:bg-blue-100">
+    /* FIXED: Connected the main application wrapper Canvas to your new premium Soft Teal/Cyan fluid theme gradient layout to prevent color fragmentation flashes */
+    <div className="w-full min-h-screen bg-gradient-to-tr from-[#eefaf6] via-[#f7fdfb] to-[#e4f6f0] text-slate-800 font-sans overflow-y-auto selection:bg-[#a7f3d0]">
       <Navbar navigate={navigate} />
       
       {/* Maintains your exact same rendering layout loop with custom top alignment padding */}
-      <div className="flex flex-col items-center justify-center pt-24 pb-12">
+      <div className="flex flex-col items-center justify-center">
         {page === 'home' && <Home navigate={navigate} />}
         {page === 'login' && <div className="mt-12"><Login navigate={navigate} currentRole={role} /></div>}
         {page === 'signup' && <div className="mt-12"><Signup navigate={navigate} currentRole={role} /></div>}
